@@ -7,9 +7,12 @@ Rime 語法模型（octagram / 八股文）。
 的做法，用**字符 2–6 gram** 從吳語語料訓練，供 Rime 根據已上屏的上文
 調整候選詞排序。
 
-* 模型檔：`out/wu-suhu.gram`（約 253 KB）
+* 模型檔：`out/wugniu_suwu.gram`（約 439 KB，21,588 條 2–6 gram）
 * 語料：作者私有吳語語料（1.6 萬字，正字法與輸入法一致）
   ＋ `wuphin.*` 吳語詞庫（補高頻搭配）
+* **覆蓋三套輸出字形**：詞庫原形（`漢字`）／`吳語漢字`／`簡體`
+  —— 因爲 librime 查表時「上文已轉換、候選詞未轉換」，只存一種字形
+  會讓用戶一換字形標準就大批查不到。詳見下方專節。
 * 用法：見下方「部署」一節
 
 ---
@@ -114,20 +117,113 @@ grammar 模型匹配的是**上屏後的字元**。若語料與實際輸出字�
 
 ---
 
+## 多輸出字形標準的適配
+
+輸入法有 7 種輸出字形可選（`漢字`／`吳語漢字`／`香港漢字`／`臺灣漢字`／
+`日本漢字`／`汉字`／`雪螢漢字`），而**語法模型必須同時對這幾種都能命中**。
+原因在 librime 的查表方式。
+
+### 機制：上文已轉換、候選詞未轉換
+
+`src/rime/gear/poet.cc` 裏的評分調用是：
+
+```cpp
+const string& context =
+    candidate.empty() ? preceding_text : candidate.context();
+double weight = candidate.weight +
+                Grammar::Evaluate(context, entry->text, entry->weight,
+                                  is_rear, grammar_.get());
+```
+
+* `preceding_text` 來自
+  `engine->context()->commit_history().latest_text()` 或
+  `composition().GetTextBefore(start)` —— 也就是**已上屏的文字**，
+  已經過 simplifier／opencc 濾鏡，是**用戶選定的字形**。
+* `entry->text` 是 `DictEntry` 的原文 —— **詞庫原生字形**。
+  濾鏡在 translator（含 poet 句子合成）之後才執行，所以候選詞這一側
+  還沒被轉換。
+
+於是查表實際發生在「**已轉換的上文 ＋ 未轉換的候選詞**」之間。
+模型若只存一種字形，用戶一換字形標準就會大批查不到 ——
+表現爲「模型忽然不靈」，但不報錯。
+
+### 粵語模型是怎麼處理的
+
+**它沒有做任何適配，而是靠語料本身混合了多套字形。**
+`rime-corpus-processing` 的語料源同時包含臺灣文本（Taiwan-Text-Excellence-2B、
+PTT-pretrain-zhtw）與香港文本（hk_content_corpus），所以兩套字形都進了模型，
+**覆蓋強度與該標準在語料中的佔比成正比**。
+
+實測 `zh-hant-cantonese.gram` 中以各字形開頭的 key 條數：
+
+| 字形對 | 前者 | 後者 |
+|---|---|---|
+| 為 / 爲 | 7,488 | 10 |
+| 說 / 説 | 1,417 | 20 |
+| 線 / 綫 | 1,228 | 56 |
+| 裡 / 裏 | 734 | 217 |
+| 群 / 羣 | 169 | 171 |
+| 峰 / 峯 | 47 | 87 |
+
+可見主導字形是臺灣／標準繁體，少數派字形只是「順帶有」。
+用戶若選香港字形，部分搭配會查不到 —— 只是粵語語料夠大，
+少數派字形也累積到了可用的量級。
+
+### 本模型的做法：枚舉切分點
+
+語料只有 1.6 萬字，靠語料混合根本覆蓋不了三套字形。所以改爲
+**對每條 n-gram 枚舉「前 j 字已轉換、其餘保持詞庫原形」的全部切分**
+（j = 0..k），分別套用各目標字形表：
+
+```
+變體 = { 前 j 字轉成字形 F + 其餘保持原形 | j = 0..k, F ∈ 各目標字形 }
+```
+
+j = 0 即原形，故原形天然包含在內。`$` 句末標記不參與轉換。
+實現見 `tools/expand_variants.py`。
+
+目標字形表取自輸入法倉庫自身的 `opencc/`：
+
+| 選項 | 使用的表 | 效果舉例 |
+|---|---|---|
+| `漢字`（原形） | 無（保持詞庫原形） | 說 沒 虛 啟 |
+| `吳語漢字` | `SWCharacters.txt`（s2wy） | 説 没 虚 啓 |
+| `汉字`（簡體） | `TSCharacters.txt`（t2s） | 说 没 虚 启 |
+
+### 實測結果
+
+擴展後條目 11,717 → 21,588（2.09 倍），模型 253 KB → 439 KB。
+從含可變字的樣本中抽 400 條 2-gram，按上述機制模擬運行時查表：
+
+| 用戶選的字形 | 命中率 |
+|---|---|
+| `漢字`（原形） | 400 / 400（100%） |
+| `吳語漢字` | 400 / 400（100%） |
+| `汉字`（簡體） | 400 / 400（100%） |
+
+`蘇州`／`苏州`、`吳語`／`吴语` 在模型中查到同一條目、同一次數。
+
+> 注意：多值映射取首項。`SWCharacters.txt` 裏有 4 條形如
+> `个 → "个 個"`，OpenCC 實際取首項，所以 `个` 不會變成 `個`。
+> 另外本腳本只做逐字轉換，跳過 `SWPhrases.txt` 的詞組規則
+> （詞組規則需要分詞，且對 2–6 字的 n-gram 影響很小）。
+
 ## 構建
 
 ```bash
-# 一鍵走完：抽取 → 統計 → 構建 → 自檢
+# 一鍵走完：抽取 → 統計 → 擴展字形 → 構建 → 自檢
 python tools/build_all.py \
   --dict path/to/wuphin.word.dict.yaml \
   --dict path/to/wuphin.map.dict.yaml \
-  --dict path/to/wuphin.phrases.dict.yaml
+  --dict path/to/wuphin.phrases.dict.yaml \
+  --table wy=path/to/opencc/SWCharacters.txt \
+  --table hans=path/to/opencc/TSCharacters.txt
 
 # 若需從 .docx 重新抽取語料
-python tools/build_all.py --docx-dir "D:/Wu/Chrome/吳語語料" --dict ...
+python tools/build_all.py --docx-dir "D:/Wu/Chrome/吳語語料" --dict ... --table ...
 ```
 
-產物為 `out/wu-suhu.gram`。
+產物為 `out/wugniu_suwu.gram`。省略全部 `--table` 就退化成單一字形模型。
 
 ### 分步執行
 
@@ -136,8 +232,14 @@ python tools/docx_to_txt.py  in.docx  corpus/wu_text.txt
 python tools/count_ngram.py  --input corpus/wu_text.txt \
                              --dict-words wuphin.word.dict.yaml \
                              --output work/ngram.tsv
-python tools/build_gram.py   --input work/ngram.tsv --language wu-suhu
-python tools/verify_gram.py  --gram out/wu-suhu.gram --tsv work/ngram.tsv
+python tools/expand_variants.py --input work/ngram.tsv \
+                             --output work/ngram_multi.tsv \
+                             --table wy=opencc/SWCharacters.txt \
+                             --table hans=opencc/TSCharacters.txt
+python tools/build_gram.py   --input work/ngram_multi.tsv \
+                             --language wugniu_suwu
+python tools/verify_gram.py  --gram out/wugniu_suwu.gram \
+                             --tsv work/ngram_multi.tsv
 ```
 
 ### 參數取捨
@@ -176,7 +278,7 @@ python tools/verify_gram.py  --gram out/wu-suhu.gram --tsv work/ngram.tsv
 
 ## 部署
 
-1. 把 `out/wu-suhu.gram` 與 `grammar.yaml` 複製到 Rime 用戶文件夾
+1. 把 `out/wugniu_suwu.gram` 與 `grammar.yaml` 複製到 Rime 用戶文件夾
    （Windows：`%APPDATA%\Rime`）
 2. 把 `wugniu_suwu.custom.yaml` 複製到同一文件夾
    （若已存在同名檔案，只合併 `patch:` 內容，**不要出現兩個 `patch:` 鍵**）
@@ -231,17 +333,18 @@ Rime::Grammar/1.0
 
 ```
 wu-gram/
-├─ grammar.yaml               Rime 語法模型配置
-├─ wugniu_suwu.custom.yaml    方案補丁（示例）
-├─ out/wu-suhu.gram           構建產物
-├─ corpus/                    語料（不入庫，私有）
+├─ grammar.yaml                Rime 語法模型配置
+├─ wugniu_suwu.custom.yaml     方案補丁（示例）
+├─ out/wugniu_suwu.gram        構建產物
+├─ corpus/                     語料（不入庫，私有）
 └─ tools/
-   ├─ gram_format.py    .gram 格式讀寫 + Darts 單元位域
-   ├─ build_gram.py     純 Python .gram 構建器
-   ├─ count_ngram.py    語料 → n-gram 頻次
-   ├─ verify_gram.py    逐條回查自檢
-   ├─ docx_to_txt.py    .docx → 純文字
-   └─ build_all.py      一鍵流水線
+   ├─ gram_format.py     .gram 格式讀寫 + Darts 單元位域
+   ├─ build_gram.py      純 Python .gram 構建器
+   ├─ count_ngram.py     語料 → n-gram 頻次
+   ├─ expand_variants.py n-gram → 多輸出字形標準擴展
+   ├─ verify_gram.py     逐條回查自檢
+   ├─ docx_to_txt.py     .docx → 純文字
+   └─ build_all.py       一鍵流水線
 ```
 
 ---

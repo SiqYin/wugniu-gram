@@ -41,7 +41,11 @@ def main():
                     help="語料 txt，可多次指定（默認用 corpus/wu_*.txt）")
     ap.add_argument("--dict", action="append", default=[],
                     help="補充 Rime 詞庫，可多次指定")
-    ap.add_argument("--language", default="wu-suhu")
+    ap.add_argument("--table", action="append", default=[],
+                    help="OpenCC 字形表 NAME=PATH，可多次指定。"
+                         "給出時會把 n-gram 擴展成多種輸出字形標準都能命中"
+                         "（見 expand_variants.py 的說明）")
+    ap.add_argument("--language", default="wugniu_suwu")
     ap.add_argument("--min-count", type=int, default=2,
                     help="各階統一的 min-count（默認 2）")
     args = ap.parse_args()
@@ -82,17 +86,27 @@ def main():
     cmd += ["--output", ngram_tsv]
     run(cmd, "統計字符 n-gram")
 
+    # 2.5 多字形標準擴展
+    build_tsv = ngram_tsv
+    if args.table:
+        build_tsv = ROOT / "work" / "ngram_multi.tsv"
+        cmd = [TOOLS / "expand_variants.py", "--input", ngram_tsv,
+               "--output", build_tsv]
+        for t in args.table:
+            cmd += ["--table", t]
+        run(cmd, "擴展多字形標準（吳語漢字 / 簡體 等）")
+
     # 3. 構建 .gram
     gram = ROOT / "out" / (args.language + ".gram")
     m = args.min_count
-    cmd = [TOOLS / "build_gram.py", "--input", ngram_tsv,
+    cmd = [TOOLS / "build_gram.py", "--input", build_tsv,
            "--language", args.language, "--output", gram]
     for o in range(2, 7):
         cmd += ["--min-count-%d" % o, str(m)]
     run(cmd, "構建 .gram")
 
     # 4. 自檢
-    cmd = [TOOLS / "verify_gram.py", "--gram", gram, "--tsv", ngram_tsv]
+    cmd = [TOOLS / "verify_gram.py", "--gram", gram, "--tsv", build_tsv]
     for o in range(2, 7):
         cmd += ["--min-count-%d" % o, str(m)]
     run(cmd, "逐條回查自檢")

@@ -1,21 +1,22 @@
 # Rime configuration
 # 蘇滬混合腔 字符 n-gram 語法模型（octagram / 八股文）
 #
-# 本模型與 zh-hant-cantonese.gram 同型：都用 rime-corpus-processing 的
-# 字符 2–6 gram 方式構建，故參數與上游 grammar.yaml 對齊。
+# 本模型與 zh-hant-cantonese.gram 同型：都用字符 2–6 gram 方式構建，
+# 但額外做了「多輸出字形標準」適配（見文末說明）。
 #
 # 部署要點
 # --------
 # 1. grammar/language 的值必須與 .gram 文件名逐字相同。
-#    本文件對應 wu-suhu.gram，且必須與 .gram 同放在 Rime 用戶文件夾
+#    本文件對應 wugniu_suwu.gram，且必須與 .gram 同放在 Rime 用戶文件夾
 #    （Windows：%APPDATA%\Rime）。
-# 2. 一個方案同時只能掛一個語言模型（grammar/language 是單值配置），
-#    所以在 wugniu_suwu 上啟用本模型，就意味著該方案不再用粵語模型。
-# 3. 用法見同目錄 README.md「部署」一節。
+# 2. 一個方案同時只能掛一個語言模型（grammar/language 是單值配置）。
+# 3. wugniu_suwu 方案已把這段配置直接寫進 wugniu_suwu.schema.yaml，
+#    正常情況下不需要本文件；保留它是供其他方案用
+#    __include: grammar:/wugniu_suwu 引用。
 
-wu-suhu:
+wugniu_suwu:
   grammar:
-    language: wu-suhu
+    language: wugniu_suwu
     # min_length = 2 是關鍵，不可省。
     # octagram 對「匹配長度 < min_length」的命中套用 weak_collocation_penalty
     # （默認 -24），比 non_collocation_penalty（默認 -12）更差，
@@ -53,3 +54,25 @@ wu-suhu:
 # 原則：collocation_penalty 應明顯大於 non_collocation_penalty，
 # 差值就是「有搭配」相對「沒搭配」的固定增益。
 # 差值過大會讓小語料里的偶然搭配壓過詞庫本身的詞頻，反而變差。
+
+# ── 爲什麼模型要包含多種輸出字形 ──
+# librime 查語法模型時，上下文與候選詞的字形來源不是同一套。
+# 見 src/rime/gear/poet.cc：
+#
+#   context = 已上屏的文字（經過 simplifier / opencc 濾鏡，即用戶選定的字形）
+#   word    = DictEntry->text（詞庫原生字形；濾鏡在 poet 之後才執行）
+#
+# 也就是說查表發生在「已轉換的上文 ＋ 未轉換的候選詞」之間。
+# 模型若只存一種字形，用戶一換字形標準（吳語漢字 / 簡體 / 臺灣漢字…）
+# 就會大批查不到——表現爲模型突然不靈，但不報錯。
+#
+# 本模型因此對每條 n-gram 枚舉「前 j 字已轉換、其餘保持詞庫原形」的
+# 全部切分，覆蓋三套標準（詞庫原形 / 吳語漢字 / 簡體）。
+# 構建方式見 tools/expand_variants.py。
+#
+# 對照：本機實測 zh-hant-cantonese.gram **沒有**做這種適配，
+# 它是靠語料本身混合了臺灣與香港兩套語料（PTT、臺灣文本、
+# hk_content_corpus 等）而自然覆蓋多種字形，覆蓋強度與該標準在
+# 語料中的佔比成正比。實測：`為` 7,488 條 / `爲` 10 條；
+# `線` 1,228 條 / `綫` 56 條；`群` 169 條 / `羣` 171 條。
+

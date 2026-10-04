@@ -3,7 +3,7 @@
 #
 # 部署步骤
 # --------
-# 1. 把 wu-suhu.gram 与 grammar.yaml 都复制到 Rime 用户文件夹：
+# 1. 把 wugniu_suwu.gram 与 grammar.yaml 都复制到 Rime 用户文件夹：
 #      Windows: %APPDATA%\Rime
 # 2. 把本文件复制到同一文件夹，命名为 wugniu_suwu.custom.yaml
 #    （若已存在同名文件，只把 patch: 下面的内容合并进去，
@@ -16,7 +16,7 @@
 
 patch:
   grammar:
-    language: wu-suhu                 # 对应 wu-suhu.gram，必须逐字相同
+    language: wugniu_suwu                 # 对应 wugniu_suwu.gram，必须逐字相同
     collocation_min_length: 2         # 关键：2-gram 命中才不会被 weak 惩罚压掉
     collocation_max_length: 6         # 对应模型实际构建的 2–6 阶
   translator/contextual_suggestions: true
@@ -27,7 +27,7 @@ patch:
 #
 # patch:
 #   grammar:
-#     language: wu-suhu
+#     language: wugniu_suwu
 #     collocation_min_length: 2
 #     collocation_max_length: 6
 #     collocation_penalty: -6
