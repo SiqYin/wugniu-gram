@@ -1,0 +1,55 @@
+# Rime configuration
+# 蘇滬混合腔 字符 n-gram 語法模型（octagram / 八股文）
+#
+# 本模型與 zh-hant-cantonese.gram 同型：都用 rime-corpus-processing 的
+# 字符 2–6 gram 方式構建，故參數與上游 grammar.yaml 對齊。
+#
+# 部署要點
+# --------
+# 1. grammar/language 的值必須與 .gram 文件名逐字相同。
+#    本文件對應 wu-suhu.gram，且必須與 .gram 同放在 Rime 用戶文件夾
+#    （Windows：%APPDATA%\Rime）。
+# 2. 一個方案同時只能掛一個語言模型（grammar/language 是單值配置），
+#    所以在 wugniu_suwu 上啟用本模型，就意味著該方案不再用粵語模型。
+# 3. 用法見同目錄 README.md「部署」一節。
+
+wu-suhu:
+  grammar:
+    language: wu-suhu
+    # min_length = 2 是關鍵，不可省。
+    # octagram 對「匹配長度 < min_length」的命中套用 weak_collocation_penalty
+    # （默認 -24），比 non_collocation_penalty（默認 -12）更差，
+    # 會使 2-gram 命中反而變成懲罰。設 2 之後 2-gram 才能正常加分。
+    collocation_min_length: 2
+    # max_length = 6 對應模型實際構建的 2–6 階。
+    # 內部取值 n = min(8, max_length - 1) = 5，即最多取前 5 字作上下文；
+    # 若此處改小（如 2），n 變成 1，3–6 階條目將永遠檢索不到而成死數據。
+    collocation_max_length: 6
+  # 語言模型可參考已上屏的上文，長句效果更佳。
+  # 註：萬象大型模型在你機器上需要關掉此項（見 bepemefeve_flypy.custom.yaml），
+  #     但那是因為萬象模型體量大、主要走 poet 句子合成路徑；
+  #     本模型與粵語模型同型，故與 jyut6ping3.custom.yaml 保持一致，開為 true。
+  translator/contextual_suggestions: true
+  # 吳語同音字較普通話密集，翻頁深度與粵語方案取齊。
+  translator/max_homophones: 7
+  translator/max_homographs: 7
+
+# ── 若覺得模型效果太弱，可改用下列參數 ──
+# 本模型語料量有限（用戶語料 1.6 萬字 + 吳語詞庫補高頻搭配），
+# 各條目的 value = int(ln(次數) × 10000)，即評分尺度只有 0～6，
+# 而 librime 默認的 non_collocation_penalty = -12。
+# 於是「命中」相對「未命中」的增益只有 ln(次數)，最大約 6 分。
+# 想讓模型更強勢，可把命中側的基準抬高（數值變大＝扣分變少）：
+#
+#   grammar:
+#     language: wu-suhu
+#     collocation_min_length: 2
+#     collocation_max_length: 6
+#     collocation_penalty: -6        # 默認 -12，抬高 6 分
+#     non_collocation_penalty: -12   # 保持默認
+#     weak_collocation_penalty: -100 # 讓過短的命中徹底失效
+#     rear_penalty: -8               # 默認 -18
+#
+# 原則：collocation_penalty 應明顯大於 non_collocation_penalty，
+# 差值就是「有搭配」相對「沒搭配」的固定增益。
+# 差值過大會讓小語料里的偶然搭配壓過詞庫本身的詞頻，反而變差。

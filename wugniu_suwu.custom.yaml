@@ -1,0 +1,39 @@
+# wugniu_suwu 用户自定义补丁（示例）
+# 作用：启用苏沪混合腔字符 n-gram 语法模型（octagram / 八股文）
+#
+# 部署步骤
+# --------
+# 1. 把 wu-suhu.gram 与 grammar.yaml 都复制到 Rime 用户文件夹：
+#      Windows: %APPDATA%\Rime
+# 2. 把本文件复制到同一文件夹，命名为 wugniu_suwu.custom.yaml
+#    （若已存在同名文件，只把 patch: 下面的内容合并进去，
+#      不要出现两个 patch: 键 —— YAML 重复键会被静默忽略）
+# 3. 执行 Rime「重新部署」
+#
+# 注意：一个方案同时只能挂载一个语言模型。
+# grammar/language 是单值配置，所以在 wugniu_suwu 上启用本模型后，
+# 该方案就不再使用其他 .gram；反向也成立。
+
+patch:
+  grammar:
+    language: wu-suhu                 # 对应 wu-suhu.gram，必须逐字相同
+    collocation_min_length: 2         # 关键：2-gram 命中才不会被 weak 惩罚压掉
+    collocation_max_length: 6         # 对应模型实际构建的 2–6 阶
+  translator/contextual_suggestions: true
+  translator/max_homophones: 7
+  translator/max_homographs: 7
+
+# 若觉得模型太弱，把 patch 换成下面这段（差值 = 有搭配相对没搭配的固定增益）：
+#
+# patch:
+#   grammar:
+#     language: wu-suhu
+#     collocation_min_length: 2
+#     collocation_max_length: 6
+#     collocation_penalty: -6
+#     non_collocation_penalty: -12
+#     weak_collocation_penalty: -100
+#     rear_penalty: -8
+#   translator/contextual_suggestions: true
+#   translator/max_homophones: 7
+#   translator/max_homographs: 7
